@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=DeX стоп
+Name[en]=DeX stop
+Comment=Остановить Miracast-приёмник DeX
+Comment[en]=Stop the DeX Miracast sink
+Exec=@BINDIR@/dex-sink-gui-stop
+Icon=process-stop
+Terminal=false
+Categories=Network;
+StartupNotify=true

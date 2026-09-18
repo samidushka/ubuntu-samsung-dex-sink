@@ -1,0 +1,11 @@
+This repository ships wrapper scripts, desktop launchers, and a small
+miraclecast patch. It does **not** vendor the miraclecast tree.
+
+miraclecast (https://github.com/albfan/miraclecast) remains upstream.
+The file patches/miraclecast-samsung-invitation.patch is a derivative of
+miraclecast source and is distributed under the same license as upstream
+miraclecast (LGPL-2.1+). Apply it to a local clone; do not treat this
+repository as a fork of miraclecast.
+
+Scripts, desktop files, and documentation in this repository are MIT
+(see LICENSE).

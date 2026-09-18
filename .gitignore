@@ -1,0 +1,15 @@
+*.log
+*.pyc
+__pycache__/
+.env
+.env.*
+*.swp
+*~
+build/
+.idea/
+.vscode/
+.DS_Store
+# never ship local sudo helpers or machine paths
+*pass*
+askpass*
+*.deb

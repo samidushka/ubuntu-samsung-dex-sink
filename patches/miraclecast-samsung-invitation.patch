@@ -1,0 +1,97 @@
+diff --git a/src/wifi/wifid-supplicant.c b/src/wifi/wifid-supplicant.c
+index f41382e..6caf84d 100644
+--- a/src/wifi/wifid-supplicant.c
++++ b/src/wifi/wifid-supplicant.c
+@@ -1347,6 +1347,44 @@ static void supplicant_event_p2p_group_formation_failure(struct supplicant *s,
+ 	}
+ }
+ 
++
++static void supplicant_event_p2p_invitation_received(struct supplicant *s,
++						     struct wpas_message *ev)
++{
++	struct supplicant_peer *sp;
++	const char *mac;
++	int r;
++
++	r = wpas_message_dict_read(ev, "sa", 's', &mac);
++	if (r < 0) {
++		log_debug("no sa in P2P-INVITATION-RECEIVED: %s",
++			  wpas_message_get_raw(ev));
++		return;
++	}
++
++	sp = find_peer_by_p2p_mac(s, mac);
++	if (!sp) {
++		log_debug("stale P2P-INVITATION-RECEIVED: %s",
++			  wpas_message_get_raw(ev));
++		return;
++	}
++
++	log_info("P2P invitation from %s — P2P_CONNECT pbc join", mac);
++	{
++		_wpas_message_unref_ struct wpas_message *m = NULL;
++		int cr;
++		cr = wpas_message_new_request(sp->s->bus_global, "P2P_CONNECT", &m);
++		if (cr >= 0)
++			cr = wpas_message_append(m, "sss", sp->p->p2p_mac, "pbc", "join");
++		if (cr >= 0)
++			cr = wpas_call_async(sp->s->bus_global, m, NULL, NULL, 0, NULL);
++		if (cr < 0)
++			log_warning("invitation join failed: %d", cr);
++		else
++			sp->s->pending = sp;
++	}
++}
++
+ static void supplicant_event_ap_sta_connected(struct supplicant *s,
+ 					      struct wpas_message *ev)
+ {
+@@ -1396,21 +1434,29 @@ static void supplicant_event_ap_sta_connected(struct supplicant *s,
+ 	}
+ 
+ 	ifname = wpas_message_get_ifname(ev);
+-	if (!ifname) {
+-		log_debug("no ifname in AP-STA-CONNECTED: %s",
+-			  wpas_message_get_raw(ev));
+-		return;
++	g = ifname ? find_group_by_ifname(s, ifname) : NULL;
++	if (!g) {
++		struct shl_dlist *i;
++		shl_dlist_for_each(i, &s->groups) {
++			g = shl_dlist_entry(i, struct supplicant_group, list);
++			if (g->go)
++				break;
++			g = NULL;
++		}
+ 	}
+-
+-	g = find_group_by_ifname(s, ifname);
+ 	if (!g) {
+-		log_debug("unknown ifname %s in AP-STA-CONNECTED: %s",
+-			  ifname, wpas_message_get_raw(ev));
++		log_warning("AP-STA-CONNECTED: no group for %s ifname=%s raw=%s",
++			    p2p_mac, ifname ? ifname : "<none>",
++			    wpas_message_get_raw(ev));
+ 		return;
+ 	}
+ 
+-	log_debug("bind peer %s to existing local group %s", p2p_mac, ifname);
++	log_info("bind peer %s to group %s (AP-STA-CONNECTED)", p2p_mac, g->ifname);
++	if (!g->sp)
++		g->sp = sp;
+ 	supplicant_peer_set_group(sp, g);
++	if (g->local_addr && sp->remote_addr)
++		peer_supplicant_connected_changed(sp->p, true);
+ }
+ 
+ static void supplicant_event_ap_sta_disconnected(struct supplicant *s,
+@@ -1513,6 +1559,8 @@ static void supplicant_event(struct supplicant *s, struct wpas_message *m)
+ 			supplicant_event_p2p_go_neg_failure(s, m);
+ 		else if (!strcmp(name, "P2P-GROUP-FORMATION-FAILURE"))
+ 			supplicant_event_p2p_group_formation_failure(s, m);
++		else if (!strcmp(name, "P2P-INVITATION-RECEIVED"))
++			supplicant_event_p2p_invitation_received(s, m);
+ 		else if (!strcmp(name, "AP-STA-CONNECTED"))
+ 			supplicant_event_ap_sta_connected(s, m);
+ 		else if (!strcmp(name, "AP-STA-DISCONNECTED"))

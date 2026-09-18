@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=DeX как ТВ (приёмник)
+Name[en]=DeX like TV (sink)
+Comment=Беспроводной Miracast-приёмник: телефон видит ноут в DeX как ТВ
+Comment[en]=Miracast sink so Galaxy DeX can pick this laptop like a TV
+Exec=gnome-terminal --title=DeX -- @BINDIR@/dex-sink-run-now
+Icon=org.gnome.NetworkDisplays
+Terminal=false
+Categories=Network;RemoteAccess;
+Keywords=DeX;Miracast;Samsung;TV;wireless;sinkctl;
+StartupNotify=true
+Actions=Stop;Gui;
+
+[Desktop Action Stop]
+Name=Остановить DeX-приёмник
+Name[en]=Stop DeX sink
+Exec=gnome-terminal --title=DeX\ stop -- @BINDIR@/dex-tv-like-stop
+
+[Desktop Action Gui]
+Name=Запуск через окно пароля
+Name[en]=Start with password dialog
+Exec=@BINDIR@/dex-sink-gui-launch

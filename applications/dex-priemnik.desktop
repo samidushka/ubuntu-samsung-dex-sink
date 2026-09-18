@@ -1,0 +1,20 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=DeX приёмник
+Name[en]=DeX sink
+GenericName=Samsung DeX Miracast sink
+Comment=Запуск беспроводного DeX: телефон видит ноут как ТВ
+Comment[en]=Start wireless DeX so the phone sees this laptop like a TV
+Exec=@BINDIR@/dex-sink-gui-launch
+Icon=org.gnome.NetworkDisplays
+Terminal=false
+Categories=Network;
+Keywords=DeX;Miracast;Samsung;TV;
+StartupNotify=true
+Actions=Stop;
+
+[Desktop Action Stop]
+Name=Стоп DeX приёмник
+Name[en]=Stop DeX sink
+Exec=@BINDIR@/dex-sink-gui-stop
