@@ -40,7 +40,7 @@ dex_session_runtime() {
 dex_friendly_name() {
   local host
   host="$(hostname -s 2>/dev/null || true)"
-  [[ -n "$host" ]] || host="Linux"
+  [[ -n "$host" ]] || host="Ubuntu"
   printf '%s\n' "${DEX_FRIENDLY_NAME:-${host}-DeX}"
 }
 

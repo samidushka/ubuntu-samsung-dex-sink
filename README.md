@@ -1,6 +1,6 @@
-# Linux Samsung DeX sink (Miracast)
+# Ubuntu Samsung DeX sink (Miracast)
 
-Turn a Linux laptop into a **wireless Samsung DeX / Smart View receiver**, the same way a phone connects to a TV. The laptop is a **Miracast sink**, not a screen sender.
+Turn an Ubuntu laptop into a **wireless Samsung DeX / Smart View receiver**, the same way a phone connects to a TV. The laptop is a **Miracast sink**, not a screen sender.
 
 Русский текст ниже. English: this repo is wrappers + a small [miraclecast](https://github.com/albfan/miraclecast) patch so a Galaxy phone can pick the laptop in DeX → “TV or monitor”.
 
@@ -24,8 +24,8 @@ Samsung беспроводной DeX на телевизор идёт по **Mir
 На ноутбуке, в **локальном** терминале (нужен интерактивный `sudo`):
 
 ```bash
-git clone https://github.com/samidushka/linux-samsung-dex-sink.git
-cd linux-samsung-dex-sink
+git clone https://github.com/samidushka/ubuntu-samsung-dex-sink.git
+cd ubuntu-samsung-dex-sink
 chmod +x scripts/*.sh scripts/*.py
 ./scripts/dex-tv-like-install.sh
 ```
@@ -95,4 +95,4 @@ applications/  ярлыки GNOME (пути подставляет install)
 
 ## English (short)
 
-Linux laptop as a Samsung wireless DeX / Smart View **Miracast sink** (like a TV). Requires P2P Wi‑Fi. Ethernet may stay connected. Install with `./scripts/dex-tv-like-install.sh`, then `dex-sink-run-now` after each reboot. On the phone: DeX → TV or monitor → this laptop. Click inside the **DeX (Miracast)** window for mouse/keyboard (UIBC; optional ADB fallback). Tested on Ubuntu 26.04 + Galaxy S25 Ultra (SM-S938B, One UI / Android 16).
+Ubuntu laptop as a Samsung wireless DeX / Smart View **Miracast sink** (like a TV). Requires P2P Wi‑Fi. Ethernet may stay connected. Install with `./scripts/dex-tv-like-install.sh`, then `dex-sink-run-now` after each reboot. On the phone: DeX → TV or monitor → this laptop. Click inside the **DeX (Miracast)** window for mouse/keyboard (UIBC; optional ADB fallback). Tested on Ubuntu 26.04 + Galaxy S25 Ultra (SM-S938B, One UI / Android 16).

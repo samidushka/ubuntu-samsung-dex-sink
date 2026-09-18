@@ -52,7 +52,7 @@ for _ in $(seq 1 30); do
 done
 
 NAME="$(grep -o 'FriendlyName=[^[:space:]]*' "$OUT" 2>/dev/null | tail -1 | cut -d= -f2)"
-NAME="${NAME:-Linux-DeX}"
+NAME="${NAME:-Ubuntu-DeX}"
 
 if [[ "$ok" -eq 1 ]]; then
   notify "On air: ${NAME}. Phone: DeX → TV → ${NAME}" critical
