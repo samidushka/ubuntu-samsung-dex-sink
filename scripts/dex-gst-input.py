@@ -42,6 +42,20 @@ def first_adb_serial() -> str:
 SERIAL = first_adb_serial()
 UIBC_HOST = os.environ.get("DEX_UIBC_HOST", "").strip()
 UIBC_PORT = os.environ.get("DEX_UIBC_PORT", "").strip()
+SCROLL_INVERT = os.environ.get("DEX_SCROLL_INVERT", "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+SCROLL_PX = max(24, min(240, int(os.environ.get("DEX_SCROLL_PX", "110"))))
+POINTER_EVENTS = (
+    Gdk.EventMask.BUTTON_PRESS_MASK
+    | Gdk.EventMask.BUTTON_RELEASE_MASK
+    | Gdk.EventMask.POINTER_MOTION_MASK
+    | Gdk.EventMask.SCROLL_MASK
+    | Gdk.EventMask.SMOOTH_SCROLL_MASK
+)
 LOG = os.environ.get(
     "DEX_INPUT_LOG",
     os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "dex-tv-like", "gst-input.log"),
@@ -228,6 +242,41 @@ class Injector:
         except OSError:
             self.uibc = None
 
+    def uibc_line(self, line: str) -> None:
+        if not self.uibc or not self.uibc.stdin:
+            return
+        try:
+            self.uibc.stdin.write(line + "\n")
+            self.uibc.stdin.flush()
+        except OSError:
+            self.uibc = None
+
+    def scroll(self, x: int, y: int, dx: float, dy: float, width: int = 1920, height: int = 1080) -> None:
+        sign = -1 if SCROLL_INVERT else 1
+        px = int(round(dx * SCROLL_PX * sign))
+        py = int(round(dy * SCROLL_PX * sign))
+        x2 = max(0, min(width - 1, x + px))
+        y2 = max(0, min(height - 1, y + py))
+        log(
+            f"scroll dx={dx:.2f} dy={dy:.2f} {x},{y}->{x2},{y2} "
+            f"uibc={1 if self.uibc else 0} d={self.display}"
+        )
+
+        def notches(v: float) -> int:
+            return max(1, min(15, int(round(abs(v)))))
+
+        if abs(dy) >= abs(dx) and abs(dy) >= 0.15:
+            self.uibc_line(f"6,1,{0 if dy > 0 else 1},{notches(dy)}")
+        elif abs(dx) >= 0.15:
+            self.uibc_line(f"7,1,{0 if dx > 0 else 1},{notches(dx)}")
+        if (x2, y2) != (x, y):
+            self.uibc_touch("0", x, y)
+            self.uibc_touch("2", (x + x2) // 2, (y + y2) // 2)
+            self.uibc_touch("2", x2, y2)
+            self.uibc_touch("1", x2, y2)
+            if self.serial:
+                self.swipe(x, y, x2, y2, 90)
+
     def _worker(self) -> None:
         while self.alive:
             try:
@@ -261,6 +310,9 @@ class Overlay(Gtk.Window):
         self.gst_id = None
         self.down = None
         self.last_move = 0.0
+        self.scroll_acc = [0.0, 0.0]
+        self.scroll_xy = (960, 540)
+        self._scroll_flush_id = None
         self.set_title("DeX input")
         self.set_decorated(False)
         self.set_accept_focus(True)
@@ -271,14 +323,7 @@ class Overlay(Gtk.Window):
         # Не нулевая альфа: иначе mutter отдаёт клики в gst, а не в слой ввода.
         self.set_opacity(0.08)
         self.set_type_hint(Gdk.WindowTypeHint.UTILITY)
-        self.add_events(
-            Gdk.EventMask.BUTTON_PRESS_MASK
-            | Gdk.EventMask.BUTTON_RELEASE_MASK
-            | Gdk.EventMask.POINTER_MOTION_MASK
-            | Gdk.EventMask.SCROLL_MASK
-            | Gdk.EventMask.KEY_PRESS_MASK
-            | Gdk.EventMask.FOCUS_CHANGE_MASK
-        )
+        self.add_events(POINTER_EVENTS | Gdk.EventMask.KEY_PRESS_MASK | Gdk.EventMask.FOCUS_CHANGE_MASK)
         self.connect("button-press-event", self.on_press)
         self.connect("button-release-event", self.on_release)
         self.connect("motion-notify-event", self.on_motion)
@@ -340,11 +385,50 @@ class Overlay(Gtk.Window):
         self.inj.motion("MOVE", x, y)
         return True
 
+    def _scroll_deltas(self, event):
+        if event.direction == Gdk.ScrollDirection.SMOOTH:
+            got = event.get_scroll_deltas()
+            if isinstance(got, tuple) and len(got) == 3:
+                _ok, dx, dy = got
+                return float(dx or 0.0), float(dy or 0.0)
+            if isinstance(got, tuple) and len(got) == 2:
+                return float(got[0] or 0.0), float(got[1] or 0.0)
+            return 0.0, 0.0
+        if event.direction == Gdk.ScrollDirection.UP:
+            return 0.0, -1.0
+        if event.direction == Gdk.ScrollDirection.DOWN:
+            return 0.0, 1.0
+        if event.direction == Gdk.ScrollDirection.LEFT:
+            return -1.0, 0.0
+        if event.direction == Gdk.ScrollDirection.RIGHT:
+            return 1.0, 0.0
+        return 0.0, 0.0
+
+    def _flush_scroll(self):
+        self._scroll_flush_id = None
+        ax, ay = self.scroll_acc
+        if abs(ax) < 0.12 and abs(ay) < 0.12:
+            return False
+        self.scroll_acc = [0.0, 0.0]
+        x, y = self.scroll_xy
+        self.inj.scroll(x, y, ax, ay)
+        return False
+
     def on_scroll(self, _w, event):
         x, y = self.xy(event)
-        dy = 120 if event.direction == Gdk.ScrollDirection.DOWN else -120
-        if event.direction in (Gdk.ScrollDirection.UP, Gdk.ScrollDirection.DOWN):
-            self.inj.swipe(x, y, x, max(0, min(1079, y + dy)), 80)
+        dx, dy = self._scroll_deltas(event)
+        if dx == 0.0 and dy == 0.0:
+            return True
+        self.scroll_xy = (x, y)
+        self.scroll_acc[0] += dx
+        self.scroll_acc[1] += dy
+        if abs(self.scroll_acc[0]) >= 0.7 or abs(self.scroll_acc[1]) >= 0.7:
+            if self._scroll_flush_id is not None:
+                GLib.source_remove(self._scroll_flush_id)
+                self._scroll_flush_id = None
+            self._flush_scroll()
+        elif self._scroll_flush_id is None:
+            self._scroll_flush_id = GLib.timeout_add(70, self._flush_scroll)
         return True
 
     def on_key(self, _w, event):

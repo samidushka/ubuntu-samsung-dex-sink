@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Gtk-окно Miracast (RTP 7236) + мышь/клава в Samsung DeX через ADB.
+"""Gtk-окно Miracast (RTP 7236) + мышь/клава/колесо в Samsung DeX.
 
 Картинка остаётся GStreamer, не scrcpy. sinkctl --uibc может передать
 host/port в env DEX_UIBC_*; если телефон порт не открыл — только ADB.
+Колесо: UIBC generic scroll (тип 6/7) + жест пальцем; запасной ADB swipe.
 """
 from __future__ import annotations
 
@@ -24,7 +25,7 @@ gi.require_version("Gst", "1.0")
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("GstVideo", "1.0")
-from gi.repository import Gdk, Gst, GstVideo, Gtk  # noqa: E402
+from gi.repository import Gdk, GLib, Gst, GstVideo, Gtk  # noqa: E402
 
 def first_adb_serial() -> str:
     env = os.environ.get("DEX_ADB_SERIAL", "").strip()
@@ -44,6 +45,20 @@ def first_adb_serial() -> str:
 SERIAL = first_adb_serial()
 UIBC_HOST = os.environ.get("DEX_UIBC_HOST", "").strip()
 UIBC_PORT = os.environ.get("DEX_UIBC_PORT", "").strip()
+SCROLL_INVERT = os.environ.get("DEX_SCROLL_INVERT", "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+SCROLL_PX = max(24, min(240, int(os.environ.get("DEX_SCROLL_PX", "110"))))
+POINTER_EVENTS = (
+    Gdk.EventMask.BUTTON_PRESS_MASK
+    | Gdk.EventMask.BUTTON_RELEASE_MASK
+    | Gdk.EventMask.POINTER_MOTION_MASK
+    | Gdk.EventMask.SCROLL_MASK
+    | Gdk.EventMask.SMOOTH_SCROLL_MASK
+)
 
 KEYMAP = {
     Gdk.KEY_Return: "KEYCODE_ENTER",
@@ -166,6 +181,33 @@ class Injector:
             except OSError:
                 self.uibc = None
 
+    def scroll(self, x: int, y: int, dx: float, dy: float, width: int, height: int) -> None:
+        """Wheel: UIBC generic scroll + pointer swipe; ADB if UIBC is down."""
+        sign = -1 if SCROLL_INVERT else 1
+        px = int(round(dx * SCROLL_PX * sign))
+        py = int(round(dy * SCROLL_PX * sign))
+        x2 = max(0, min(width - 1, x + px))
+        y2 = max(0, min(height - 1, y + py))
+        log(
+            f"scroll dx={dx:.2f} dy={dy:.2f} {x},{y}->{x2},{y2} "
+            f"uibc={1 if self.uibc else 0} d={self.display}"
+        )
+
+        def notches(v: float) -> int:
+            return max(1, min(15, int(round(abs(v)))))
+
+        if abs(dy) >= abs(dx) and abs(dy) >= 0.15:
+            self.uibc_line(f"6,1,{0 if dy > 0 else 1},{notches(dy)}")
+        elif abs(dx) >= 0.15:
+            self.uibc_line(f"7,1,{0 if dx > 0 else 1},{notches(dx)}")
+        if (x2, y2) != (x, y):
+            self.uibc_line(f"0,1,0,{x},{y}")
+            self.uibc_line(f"2,1,0,{(x + x2) // 2},{(y + y2) // 2}")
+            self.uibc_line(f"2,1,0,{x2},{y2}")
+            self.uibc_line(f"1,1,0,{x2},{y2}")
+            if self.serial:
+                self.swipe(x, y, x2, y2, 90)
+
     def _worker(self) -> None:
         while self.alive:
             try:
@@ -200,18 +242,15 @@ class DexPlayer:
         self.down = None
         self.last_move = 0.0
         self.xid = None
+        self.scroll_acc = [0.0, 0.0]
+        self.scroll_xy = (width // 2, height // 2)
+        self._scroll_flush_id = None
 
         self.win = Gtk.Window(title="DeX (Miracast)")
         self.win.set_default_size(width, height)
         self.win.connect("destroy", self.quit)
         self.win.connect("key-press-event", self.on_key)
-        self.win.set_events(
-            Gdk.EventMask.BUTTON_PRESS_MASK
-            | Gdk.EventMask.BUTTON_RELEASE_MASK
-            | Gdk.EventMask.POINTER_MOTION_MASK
-            | Gdk.EventMask.SCROLL_MASK
-            | Gdk.EventMask.KEY_PRESS_MASK
-        )
+        self.win.set_events(POINTER_EVENTS | Gdk.EventMask.KEY_PRESS_MASK)
         self.win.connect("button-press-event", self.on_press)
         self.win.connect("button-release-event", self.on_release)
         self.win.connect("motion-notify-event", self.on_motion)
@@ -236,12 +275,7 @@ class DexPlayer:
         self.pipeline = Gst.parse_launch(pipe)
         sink = self.pipeline.get_by_name("dexsink")
         widget = sink.get_property("widget")
-        widget.add_events(
-            Gdk.EventMask.BUTTON_PRESS_MASK
-            | Gdk.EventMask.BUTTON_RELEASE_MASK
-            | Gdk.EventMask.POINTER_MOTION_MASK
-            | Gdk.EventMask.SCROLL_MASK
-        )
+        widget.add_events(POINTER_EVENTS)
         widget.connect("button-press-event", self.on_press)
         widget.connect("button-release-event", self.on_release)
         widget.connect("motion-notify-event", self.on_motion)
@@ -301,10 +335,50 @@ class DexPlayer:
         self.inj.motion("MOVE", x, y)
         return True
 
+    def _scroll_deltas(self, event):
+        if event.direction == Gdk.ScrollDirection.SMOOTH:
+            got = event.get_scroll_deltas()
+            if isinstance(got, tuple) and len(got) == 3:
+                _ok, dx, dy = got
+                return float(dx or 0.0), float(dy or 0.0)
+            if isinstance(got, tuple) and len(got) == 2:
+                return float(got[0] or 0.0), float(got[1] or 0.0)
+            return 0.0, 0.0
+        if event.direction == Gdk.ScrollDirection.UP:
+            return 0.0, -1.0
+        if event.direction == Gdk.ScrollDirection.DOWN:
+            return 0.0, 1.0
+        if event.direction == Gdk.ScrollDirection.LEFT:
+            return -1.0, 0.0
+        if event.direction == Gdk.ScrollDirection.RIGHT:
+            return 1.0, 0.0
+        return 0.0, 0.0
+
+    def _flush_scroll(self):
+        self._scroll_flush_id = None
+        ax, ay = self.scroll_acc
+        if abs(ax) < 0.12 and abs(ay) < 0.12:
+            return False
+        self.scroll_acc = [0.0, 0.0]
+        x, y = self.scroll_xy
+        self.inj.scroll(x, y, ax, ay, self.width, self.height)
+        return False
+
     def on_scroll(self, _w, event):
         x, y = self.xy(event)
-        dy = 120 if event.direction == Gdk.ScrollDirection.DOWN else -120
-        self.inj.swipe(x, y, x, max(0, min(self.height - 1, y + dy)), 80)
+        dx, dy = self._scroll_deltas(event)
+        if dx == 0.0 and dy == 0.0:
+            return True
+        self.scroll_xy = (x, y)
+        self.scroll_acc[0] += dx
+        self.scroll_acc[1] += dy
+        if abs(self.scroll_acc[0]) >= 0.7 or abs(self.scroll_acc[1]) >= 0.7:
+            if self._scroll_flush_id is not None:
+                GLib.source_remove(self._scroll_flush_id)
+                self._scroll_flush_id = None
+            self._flush_scroll()
+        elif self._scroll_flush_id is None:
+            self._scroll_flush_id = GLib.timeout_add(70, self._flush_scroll)
         return True
 
     def on_key(self, _w, event):

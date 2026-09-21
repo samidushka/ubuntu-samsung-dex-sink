@@ -14,4 +14,13 @@ while read -r pid cmd; do
 done < <(ps -C python3 -o pid=,cmd= 2>/dev/null || true)
 
 sleep 0.4
-exec python3 "$SCRIPT_DIR/dex-gst-player.py" -p 7236 -a -r 1920x1080 >>"$LOG" 2>&1
+extra=()
+if [[ -n "${DEX_UIBC_HOST:-}" && "${DEX_UIBC_PORT:-}" =~ ^[0-9]+$ ]]; then
+  extra+=("$DEX_UIBC_HOST" "$DEX_UIBC_PORT")
+elif [[ -f "$LOG" ]]; then
+  last="$(grep -Eo 'uibc=[0-9A-Fa-f.:]+:[0-9]+' "$LOG" | tail -1 || true)"
+  if [[ "$last" =~ uibc=([^:]+):([0-9]+)$ ]]; then
+    extra+=("${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}")
+  fi
+fi
+exec python3 "$SCRIPT_DIR/dex-gst-player.py" "${extra[@]}" -p 7236 -a -r 1920x1080 >>"$LOG" 2>&1

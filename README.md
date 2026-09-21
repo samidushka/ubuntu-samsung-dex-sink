@@ -56,10 +56,11 @@ chmod +x scripts/*.sh scripts/*.py
 Кликайте и печатайте **в окне «DeX (Miracast)»**, не в служебном 1×1.
 
 - ЛКМ — тап / свайп
+- Колесо — прокрутка (UIBC тип 6/7 + жест; иначе `adb swipe` на дисплей DeX)
 - Средняя кнопка — «домой»
 - ПКМ — «назад»
 
-Приёмник стартует как `miracle-sinkctl --uibc`. Если телефон открыл порт UIBC, события идут через `miracle-uibcctl`. Если нет — плеер может продублировать ввод через `adb input` (нужна USB-отладка; серийник не зашит, берётся `DEX_ADB_SERIAL` или первый `adb devices`).
+Приёмник стартует как `miracle-sinkctl --uibc`. Если телефон открыл порт UIBC, события идут через `miracle-uibcctl`. Если нет — плеер может продублировать ввод через `adb input` (нужна USB-отладка; серийник не зашит, берётся `DEX_ADB_SERIAL` или первый `adb devices`). Если страница едет наоборот: `DEX_SCROLL_INVERT=0`.
 
 Плеер: GTK `gtksink` (`scripts/dex-gst-player.py`), не scrcpy. Картинка — RTP MPEG-TS на **UDP 7236**.
 
